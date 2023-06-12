@@ -3,11 +3,10 @@ use info_types::InfoType;
 use crate::info_types;
 use std::collections::HashMap;
 
-
-pub struct RegexMatcher {
+pub struct RegexMatcher<'a> {
     pub expr: Regex,
     pub info_types: Vec<InfoType>,
-    pub info_type_map: HashMap<String, InfoType>,
+    pub info_type_map: HashMap<String, &'a InfoType>,
     pub info_type_names: Vec<String>,
     pub name: String,
     pub word_boundary: bool,
@@ -18,7 +17,13 @@ pub struct Position {
     pub end: usize
 }
 
-impl RegexMatcher {
+pub struct Match<'a> {
+    pub text: String,
+    pub positions: Vec<Position>,
+    pub info_type: &'a InfoType
+}
+
+impl RegexMatcher<'static> {
     pub fn get_positions_for_expr(expr: &Regex, text: &str) -> Vec<Position> {
         let mut positions = Vec::new();
         for mat in expr.find_iter(text) {
@@ -84,8 +89,10 @@ impl RegexMatcher {
     }
 }
 
-pub fn new(info_types: Vec<InfoType>) -> RegexMatcher {
+
+pub fn new(info_types: Vec<InfoType>) -> RegexMatcher<'static> {
     let mut builder = String::new();
+
     for (i, inf) in info_types.iter().enumerate() {
         let sub_expr = RegexMatcher::create_sub_expression(inf, i);
         builder.push_str(&sub_expr);
@@ -95,15 +102,49 @@ pub fn new(info_types: Vec<InfoType>) -> RegexMatcher {
 
     let mut info_type_map = HashMap::new();
     for inf in &info_types {
-        info_type_map.insert(inf.name.clone(), inf.clone());
+        info_type_map.insert(inf.name.clone(), inf);
     }
     let names = r.capture_names().map(|n| n.unwrap().to_owned()).collect();
     RegexMatcher {
         expr: r,
-        info_types: info_types,
-        info_type_map: info_type_map,
+        info_types,
+        info_type_map,
         info_type_names: names,
         name: String::new(),
         word_boundary: false,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use info_types::InfoType;
+    use regex::Regex;
+    use std::collections::HashMap;
+
+    #[test]
+    fn test_regex_matcher() {
+        let info_type = InfoType {
+            expr: "[A-Z0-9][0-9]{5,7}".to_string(),
+            name: "TestInfoType".to_string(),
+            word_boundary: false,
+            generate: || "1234".to_string()
+        };
+        let info_types = vec![info_type];
+        let matcher = new(info_types);
+
+        let text = "T123456".to_string();
+        let matches = matcher.match_fn(&text);
+        assert_eq!(matches.len(), 1);
+
+        let first_match = &matches[0];
+        assert_eq!(first_match.text, text);
+
+        let first_position = &first_match.positions[0];
+        assert_eq!(first_position.start, 0);
+        assert_eq!(first_position.end, text.len());
+
+        assert_eq!(first_match.info_type.name, info_type.name);
+        assert_eq!(first_match.info_type.expr, info_type.expr);
     }
 }
